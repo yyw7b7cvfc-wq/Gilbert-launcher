@@ -225,24 +225,23 @@
     function getGradient(p, q, glr, id) {
       const p_abs = Math.max(14.7, p + 14.7);
       
-      const z_factor = Math.max(0.72, 1.0 - 0.000065 * p);
-      const Bg = (14.7 / p_abs) * (600.0 / 520.0) * z_factor; // cu ft / scf
+      const d_nom = id / 1.995; // 2" nominal basis
+      const q_ratio = q / 600.0;
+      const glr_eff = Math.max(50.0, glr);
+
+      // 1. Empirical Gilbert Holdup Mixture Density
+      const g_surface = 0.125 * Math.pow(400.0 / glr_eff, 0.38) * Math.pow(1.0 / d_nom, 0.20);
+      const g_deep = 0.305 * Math.pow(1.0 / d_nom, 0.10);
+      const p_trans = 1150.0 * Math.pow(glr_eff / 400.0, 0.50);
+      const p_factor = Math.pow(p / (p + p_trans), 0.95);
       
-      const V_gas = glr * Bg;
-      const V_total = 5.615 + V_gas;
-      
-      const mass_total = 350.0 * 0.85 + 0.0764 * 0.65 * glr;
-      const rho_mix = mass_total / V_total; // lb/cu ft
-      
-      const slip_correction = 0.88 + 0.000045 * p;
-      const grad_static = (rho_mix * slip_correction) / 144.0;
-      
-      const d_ft = id / 12.0;
-      const v_mix = (q * V_total) / (86400 * (Math.PI * Math.pow(d_ft / 2, 2)));
-      const f_pc = 0.0065 * Math.pow(id / 1.995, -0.2);
-      const grad_friction = (f_pc * rho_mix * Math.pow(v_mix, 2)) / (2 * 32.174 * d_ft * 144.0);
-      
-      return Math.min(0.42, Math.max(0.06, grad_static + grad_friction));
+      const grad_static = g_surface + (g_deep - g_surface) * p_factor;
+
+      // 2. Multiphase Frictional Head Loss
+      const v_rel = (q_ratio / Math.pow(d_nom, 2)) * (1.0 + (glr_eff * 14.7) / (5.615 * p_abs * 6.0));
+      const grad_friction = 0.0055 * Math.pow(1.0 / d_nom, 1.2) * Math.pow(v_rel, 1.45) * (p_abs / (p_abs + 400.0));
+
+      return Math.min(0.40, Math.max(0.08, grad_static + grad_friction));
     }
 
     function computeEquivalentDepth(targetP, q, glr, id) {
