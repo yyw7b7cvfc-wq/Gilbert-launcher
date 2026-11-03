@@ -28,9 +28,9 @@
         <p class="text-xs text-slate-400">Multiphase Vertical Gradient Hydraulics & Equivalent Depth Calculation (Nind Chapter 4)</p>
       </div>
     </div>
-    <!-- Quick Presets -->
+    <!-- Presets -->
     <div class="flex items-center gap-2 flex-wrap">
-      <span class="text-xs font-semibold text-slate-400 uppercase tracking-wider mr-1">Nind Presets:</span>
+      <span class="text-xs font-semibold text-slate-400 uppercase tracking-wider mr-1">Presets:</span>
       <button onclick="applyPreset('nind_600')" class="px-2.5 py-1 text-xs rounded bg-amber-500/20 hover:bg-amber-500/40 text-amber-300 border border-amber-500/40 transition">Nind 600 b/d Test (530 psi)</button>
       <button onclick="applyPreset('bhp')" class="px-2.5 py-1 text-xs rounded bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 transition">Find BHP</button>
       <button onclick="applyPreset('thp')" class="px-2.5 py-1 text-xs rounded bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 transition">Find THP</button>
@@ -40,7 +40,7 @@
 
   <!-- Main Container -->
   <main class="flex-1 grid grid-cols-1 lg:grid-cols-12 gap-6 p-6 max-w-[1600px] w-full mx-auto">
-    <!-- Left Column: Inputs & Missing Variable Selection -->
+    <!-- Left Column: Inputs & Target Selection -->
     <div class="lg:col-span-4 flex flex-col gap-5">
       <div class="bg-slate-900 border border-slate-800 rounded-xl p-5 shadow-lg">
         <label class="block text-xs font-semibold uppercase tracking-wider text-slate-400 mb-2">
@@ -184,7 +184,7 @@
 
         <div class="bg-slate-950/40 border border-slate-800 rounded-lg p-3 text-xs text-slate-400">
           <span class="font-bold text-slate-300">Nind Equivalent Depth Rule:</span>
-          Given surface pressure <span class="text-amber-400 font-mono">Pwh</span>, locate depth <span class="text-slate-300 font-mono">H₁</span> on the curve. Add true vertical depth <span class="text-slate-300 font-mono">D</span> to get <span class="text-amber-400 font-mono">H₂ = H₁ + D</span>. Flowing BHP (<span class="text-amber-400 font-mono">Pwf</span>) is read directly across from <span class="text-slate-300 font-mono">H₂</span>.
+          Given surface pressure <span class="text-amber-400 font-mono">Pwh</span>, locate depth <span class="text-slate-300 font-mono">H₁</span> on the curve. Add true vertical depth <span class="text-slate-300 font-mono">D</span> to obtain <span class="text-amber-400 font-mono">H₂ = H₁ + D</span>. Flowing BHP (<span class="text-amber-400 font-mono">Pwf</span>) is read directly across from <span class="text-slate-300 font-mono">H₂</span>.
         </div>
       </div>
 
@@ -224,24 +224,23 @@
     // Calibrated Gilbert Flowing Gradient Function (Nind Chapter 4)
     function getGradient(p, q, glr, id) {
       const p_abs = Math.max(14.7, p + 14.7);
-      
-      const d_nom = id / 1.995; // 2" nominal basis
+      const d_nom = id / 1.995;
       const q_ratio = q / 600.0;
       const glr_eff = Math.max(50.0, glr);
 
-      // 1. Empirical Gilbert Holdup Mixture Density
-      const g_surface = 0.125 * Math.pow(400.0 / glr_eff, 0.38) * Math.pow(1.0 / d_nom, 0.20);
-      const g_deep = 0.305 * Math.pow(1.0 / d_nom, 0.10);
-      const p_trans = 1150.0 * Math.pow(glr_eff / 400.0, 0.50);
+      // Holdup & static density calibrated to Gilbert curves
+      const g_surface = 0.120 * Math.pow(400.0 / glr_eff, 0.35) * Math.pow(1.0 / d_nom, 0.20);
+      const g_deep = 0.266 * Math.pow(1.0 / d_nom, 0.10);
+      const p_trans = 950.0 * Math.pow(glr_eff / 400.0, 0.50);
       const p_factor = Math.pow(p / (p + p_trans), 0.95);
       
       const grad_static = g_surface + (g_deep - g_surface) * p_factor;
 
-      // 2. Multiphase Frictional Head Loss
+      // Multiphase frictional loss
       const v_rel = (q_ratio / Math.pow(d_nom, 2)) * (1.0 + (glr_eff * 14.7) / (5.615 * p_abs * 6.0));
-      const grad_friction = 0.0055 * Math.pow(1.0 / d_nom, 1.2) * Math.pow(v_rel, 1.45) * (p_abs / (p_abs + 400.0));
+      const grad_friction = 0.0045 * Math.pow(1.0 / d_nom, 1.2) * Math.pow(v_rel, 1.4) * (p_abs / (p_abs + 400.0));
 
-      return Math.min(0.40, Math.max(0.08, grad_static + grad_friction));
+      return Math.min(0.38, Math.max(0.06, grad_static + grad_friction));
     }
 
     function computeEquivalentDepth(targetP, q, glr, id) {
