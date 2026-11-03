@@ -1,0 +1,751 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Gilbert Gradient Curves & Well Hydraulics Solver (Nind Method)</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+  <style>
+    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }
+    .custom-scrollbar::-webkit-scrollbar { width: 6px; height: 6px; }
+    .custom-scrollbar::-webkit-scrollbar-track { background: #111827; }
+    .custom-scrollbar::-webkit-scrollbar-thumb { background: #374151; border-radius: 3px; }
+  </style>
+</head>
+<body class="bg-slate-950 text-slate-100 min-h-screen flex flex-col">
+  <!-- Header -->
+  <header class="border-b border-slate-800 bg-slate-900/80 backdrop-blur px-6 py-4 flex flex-wrap items-center justify-between gap-4">
+    <div class="flex items-center gap-3">
+      <div class="bg-amber-500/20 text-amber-400 p-2.5 rounded-lg border border-amber-500/30">
+        <i class="fa-solid fa-oil-well text-xl"></i>
+      </div>
+      <div>
+        <h1 class="text-xl font-bold tracking-tight text-white flex items-center gap-2">
+          Gilbert Gradient Curve Solver
+          <span class="text-xs font-semibold px-2 py-0.5 rounded bg-amber-500/10 text-amber-400 border border-amber-500/20">Nind Method</span>
+        </h1>
+        <p class="text-xs text-slate-400">Multiphase Vertical Gradient Hydraulics & Equivalent Depth Calculation (No PVT Required)</p>
+      </div>
+    </div>
+    <!-- Quick Presets -->
+    <div class="flex items-center gap-2 flex-wrap">
+      <span class="text-xs font-semibold text-slate-400 uppercase tracking-wider mr-1">Nind Presets:</span>
+      <button onclick="applyPreset('bhp')" class="px-2.5 py-1 text-xs rounded bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 transition">Find BHP</button>
+      <button onclick="applyPreset('thp')" class="px-2.5 py-1 text-xs rounded bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 transition">Find THP</button>
+      <button onclick="applyPreset('glr')" class="px-2.5 py-1 text-xs rounded bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 transition">Gas Lift GLR</button>
+      <button onclick="applyPreset('depth')" class="px-2.5 py-1 text-xs rounded bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 transition">Valve Depth</button>
+    </div>
+  </header>
+
+  <!-- Main Container -->
+  <main class="flex-1 grid grid-cols-1 lg:grid-cols-12 gap-6 p-6 max-w-[1600px] w-full mx-auto">
+    <!-- Left Column: Inputs & Missing Variable Selection -->
+    <div class="lg:col-span-4 flex flex-col gap-5">
+      <!-- Target Variable Selector -->
+      <div class="bg-slate-900 border border-slate-800 rounded-xl p-5 shadow-lg">
+        <label class="block text-xs font-semibold uppercase tracking-wider text-slate-400 mb-2">
+          Select Unknown Target (Missing Value to Solve)
+        </label>
+        <select id="targetVar" onchange="handleTargetChange()" class="w-full bg-slate-800 text-amber-400 font-bold border border-slate-700 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500">
+          <option value="pwf">Bottom Hole Pressure (Pwf)</option>
+          <option value="pwh">Tubing Head Pressure (THP / Pwh)</option>
+          <option value="depth">Well Depth (D)</option>
+          <option value="glr">Gas-Liquid Ratio (GLR)</option>
+          <option value="rate">Liquid Production Rate (q)</option>
+        </select>
+        <p class="text-xs text-slate-400 mt-2">
+          The selected target will be computed automatically using Nind's Equivalent Depth formulation as other values change.
+        </p>
+      </div>
+
+      <!-- Core 6 Production Parameters -->
+      <div class="bg-slate-900 border border-slate-800 rounded-xl p-5 shadow-lg flex-1 flex flex-col justify-between">
+        <h2 class="text-sm font-semibold uppercase tracking-wider text-slate-400 mb-4 pb-2 border-b border-slate-800 flex justify-between items-center">
+          <span>Well Operating Parameters</span>
+          <span class="text-[11px] text-slate-500">Gilbert Parametric</span>
+        </h2>
+
+        <div class="space-y-4">
+          <!-- Tubing Size -->
+          <div>
+            <div class="flex justify-between items-center mb-1">
+              <label class="text-xs font-medium text-slate-300">Tubing Nominal Size</label>
+            </div>
+            <select id="tubingSize" onchange="calculate()" class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-100 focus:outline-none focus:border-amber-500">
+              <option value="1.9">1.900 in OD (1.610 in ID)</option>
+              <option value="2.375" selected>2-3/8 in OD (1.995 in ID)</option>
+              <option value="2.875">2-7/8 in OD (2.441 in ID)</option>
+              <option value="3.5">3-1/2 in OD (2.992 in ID)</option>
+            </select>
+          </div>
+
+          <!-- Production Rate (q) -->
+          <div id="field-rate">
+            <div class="flex justify-between items-center mb-1">
+              <label class="text-xs font-medium text-slate-300">Production Rate (q)</label>
+              <span id="badge-rate" class="hidden text-[10px] font-bold px-1.5 py-0.2 bg-amber-500/20 text-amber-400 border border-amber-500/30 rounded">TARGET</span>
+            </div>
+            <div class="relative">
+              <input type="number" id="rate" value="400" step="10" oninput="calculate()" class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-100 focus:outline-none focus:border-amber-500">
+              <span class="absolute right-3 top-2 text-xs text-slate-400">bbl/day</span>
+            </div>
+          </div>
+
+          <!-- Total GLR -->
+          <div id="field-glr">
+            <div class="flex justify-between items-center mb-1">
+              <label class="text-xs font-medium text-slate-300">Gas-Liquid Ratio (GLR)</label>
+              <span id="badge-glr" class="hidden text-[10px] font-bold px-1.5 py-0.2 bg-amber-500/20 text-amber-400 border border-amber-500/30 rounded">TARGET</span>
+            </div>
+            <div class="relative">
+              <input type="number" id="glr" value="600" step="50" oninput="calculate()" class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-100 focus:outline-none focus:border-amber-500">
+              <span class="absolute right-3 top-2 text-xs text-slate-400">scf/bbl</span>
+            </div>
+          </div>
+
+          <!-- Total Depth (D) -->
+          <div id="field-depth">
+            <div class="flex justify-between items-center mb-1">
+              <label class="text-xs font-medium text-slate-300">Total Depth (D)</label>
+              <span id="badge-depth" class="hidden text-[10px] font-bold px-1.5 py-0.2 bg-amber-500/20 text-amber-400 border border-amber-500/30 rounded">TARGET</span>
+            </div>
+            <div class="relative">
+              <input type="number" id="depth" value="7000" step="50" oninput="calculate()" class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-100 focus:outline-none focus:border-amber-500">
+              <span class="absolute right-3 top-2 text-xs text-slate-400">ft</span>
+            </div>
+          </div>
+
+          <!-- Tubing Head Pressure (THP / Pwh) -->
+          <div id="field-pwh">
+            <div class="flex justify-between items-center mb-1">
+              <label class="text-xs font-medium text-slate-300">Tubing Head Pressure (Pwh / THP)</label>
+              <span id="badge-pwh" class="hidden text-[10px] font-bold px-1.5 py-0.2 bg-amber-500/20 text-amber-400 border border-amber-500/30 rounded">TARGET</span>
+            </div>
+            <div class="relative">
+              <input type="number" id="pwh" value="200" step="10" oninput="calculate()" class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-100 focus:outline-none focus:border-amber-500">
+              <span class="absolute right-3 top-2 text-xs text-slate-400">psig</span>
+            </div>
+          </div>
+
+          <!-- Flowing Bottom Hole Pressure (Pwf / BHP) -->
+          <div id="field-pwf">
+            <div class="flex justify-between items-center mb-1">
+              <label class="text-xs font-medium text-slate-300">Flowing BHP (Pwf)</label>
+              <span id="badge-pwf" class="text-[10px] font-bold px-1.5 py-0.2 bg-amber-500/20 text-amber-400 border border-amber-500/30 rounded">TARGET</span>
+            </div>
+            <div class="relative">
+              <input type="number" id="pwf" value="2150" step="10" oninput="calculate()" class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-100 focus:outline-none focus:border-amber-500 bg-amber-950/20 border-amber-500/40 text-amber-300" readonly>
+              <span class="absolute right-3 top-2 text-xs text-slate-400">psig</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Calculated Summary Box -->
+        <div class="mt-6 pt-4 border-t border-slate-800 bg-slate-950/60 p-4 rounded-lg">
+          <div class="flex justify-between items-center text-xs mb-1">
+            <span class="text-slate-400">Pressure Differential (ΔP):</span>
+            <span id="resDeltaP" class="font-mono font-semibold text-slate-200">-- psi</span>
+          </div>
+          <div class="flex justify-between items-center text-xs mb-1">
+            <span class="text-slate-400">Average Hydraulic Gradient:</span>
+            <span id="resAvgGrad" class="font-mono font-semibold text-slate-200">-- psi/ft</span>
+          </div>
+          <div class="flex justify-between items-center text-xs">
+            <span class="text-slate-400">Equivalent Surface Depth (H₁):</span>
+            <span id="resH1" class="font-mono font-semibold text-slate-200">-- ft</span>
+          </div>
+          <div class="flex justify-between items-center text-xs mt-1">
+            <span class="text-slate-400">Equivalent Sandface Depth (H₂):</span>
+            <span id="resH2" class="font-mono font-semibold text-slate-200">-- ft</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Right Column: Interactive Visualizations & Table -->
+    <div class="lg:col-span-8 flex flex-col gap-5">
+      <!-- Tabs & Graphic Header -->
+      <div class="bg-slate-900 border border-slate-800 rounded-xl p-5 shadow-lg flex-1 flex flex-col">
+        <div class="flex flex-wrap items-center justify-between pb-4 border-b border-slate-800 gap-3">
+          <div class="flex items-center gap-2">
+            <button id="btnTabGilbert" onclick="switchTab('gilbert')" class="px-3 py-1.5 text-xs font-semibold rounded-lg bg-amber-500/20 text-amber-400 border border-amber-500/40 transition">
+              <i class="fa-solid fa-chart-line mr-1.5"></i> Gilbert Gradient Curves (H vs P)
+            </button>
+            <button id="btnTabTraverse" onclick="switchTab('traverse')" class="px-3 py-1.5 text-xs font-semibold rounded-lg bg-slate-800 text-slate-400 hover:text-slate-200 border border-slate-700 transition">
+              <i class="fa-solid fa-arrow-down-short-wide mr-1.5"></i> Wellbore Depth Traverse (z vs P)
+            </button>
+          </div>
+          <div class="text-xs text-slate-400">
+            <span class="inline-block w-2.5 h-2.5 rounded-full bg-amber-400 mr-1.5 align-middle"></span>Active GLR Curve
+            <span class="inline-block w-2.5 h-2.5 rounded-full bg-slate-600 ml-3 mr-1.5 align-middle"></span>Reference GLRs
+          </div>
+        </div>
+
+        <!-- Canvas Container -->
+        <div class="relative w-full h-[460px] my-3 bg-slate-950 rounded-lg border border-slate-800/80 overflow-hidden">
+          <canvas id="mainCanvas" class="w-full h-full block"></canvas>
+          <!-- Hover Coordinates -->
+          <div id="canvasTooltip" class="absolute hidden bg-slate-900/90 backdrop-blur border border-slate-700 text-slate-200 text-xs px-2.5 py-1.5 rounded pointer-events-none shadow-xl"></div>
+        </div>
+
+        <!-- Methodology Explanation Card -->
+        <div class="bg-slate-950/40 border border-slate-800 rounded-lg p-3 text-xs text-slate-400">
+          <span class="font-bold text-slate-300">Nind Equivalent Depth Rule:</span>
+          Given surface pressure <span class="text-amber-400 font-mono">Pwh</span>, locate depth <span class="text-slate-300 font-mono">H₁</span> on the gradient curve for rate <span class="text-slate-300 font-mono">q</span> and gas-liquid ratio <span class="text-slate-300 font-mono">GLR</span>. Add true vertical depth <span class="text-slate-300 font-mono">D</span> to obtain <span class="text-amber-400 font-mono">H₂ = H₁ + D</span>. Flowing BHP (<span class="text-amber-400 font-mono">Pwf</span>) is read directly across from <span class="text-slate-300 font-mono">H₂</span>.
+        </div>
+      </div>
+
+      <!-- Traverse Data Table & CSV Export -->
+      <div class="bg-slate-900 border border-slate-800 rounded-xl p-5 shadow-lg">
+        <div class="flex items-center justify-between mb-3">
+          <h3 class="text-xs font-semibold uppercase tracking-wider text-slate-400">
+            Discrete Depth Traverse (Well Pressure Profile)
+          </h3>
+          <button onclick="exportCSV()" class="px-2.5 py-1 text-xs bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 rounded transition flex items-center gap-1.5">
+            <i class="fa-solid fa-file-csv text-amber-400"></i> Export CSV
+          </button>
+        </div>
+        <div class="overflow-x-auto custom-scrollbar max-h-48 border border-slate-800 rounded-lg">
+          <table class="w-full text-xs text-left">
+            <thead class="bg-slate-800/80 text-slate-300 sticky top-0 uppercase tracking-wider text-[11px]">
+              <tr>
+                <th class="py-2 px-3">Depth (ft)</th>
+                <th class="py-2 px-3">Pressure (psig)</th>
+                <th class="py-2 px-3">Local Gradient (psi/ft)</th>
+                <th class="py-2 px-3">Equivalent Depth H (ft)</th>
+              </tr>
+            </thead>
+            <tbody id="traverseBody" class="divide-y divide-slate-800/60 font-mono text-slate-300">
+              <!-- Dynamically generated rows -->
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </main>
+
+  <script>
+    // --- Gilbert Multiphase Vertical Gradient Hydraulics Core ---
+    // Nind formulation: dp/dh = [ρ_mix * g/gc + frictional pressure drop]
+    // Tubing internal diameters (inches)
+    const TUBING_IDS = {
+      '1.9': 1.610,
+      '2.375': 1.995,
+      '2.875': 2.441,
+      '3.5': 2.992
+    };
+
+    // Reference GLRs for background Gilbert curves
+    const REF_GLRS = [100, 200, 400, 600, 800, 1000, 1500, 2000, 3000];
+
+    let currentTab = 'gilbert'; // 'gilbert' or 'traverse'
+    let lastCalculatedData = null;
+
+    // Numerical gradient dp/dh in psi/ft based on Gilbert/Nind empirical parameters
+    function getGradient(p, q, glr, id) {
+      const p_abs = Math.max(14.7, p + 14.7);
+      // Fluid density representation: oil/water mix ~ 53 lb/cu ft
+      // In situ gas expansion ratio: Bg ~ z*T/P
+      const freeGasRatio = Math.max(0, glr - 150); // Solution gas threshold
+      const gasVolFraction = (freeGasRatio * (14.7 / p_abs)) / (5.615 + freeGasRatio * (14.7 / p_abs));
+      
+      // Density of multiphase mixture (lb/cu ft)
+      const rho_liq = 53.0; // standard production liquid density
+      const rho_gas = 0.05 * (p_abs / 14.7);
+      const rho_mix = (1 - gasVolFraction) * rho_liq + gasVolFraction * rho_gas;
+      const grad_static = rho_mix / 144.0; // psi/ft
+
+      // Multiphase Frictional component (Darcy-Weisbach with Gilbert two-phase correction)
+      const v_liquid = (q * 5.615) / (86400 * (Math.PI * Math.pow(id / 24, 2))); // ft/s
+      const v_superficial = v_liquid * (1 + (glr * 14.7) / (5.615 * p_abs));
+      const f = 0.022 / Math.pow(id, 0.25); // friction factor
+      const grad_friction = (f * rho_mix * Math.pow(v_superficial, 2)) / (2 * 32.174 * (id / 12) * 144.0);
+
+      return Math.min(0.48, Math.max(0.04, grad_static + grad_friction));
+    }
+
+    // Integrate Equivalent Depth H(P) from P=0 (or surface datum) up to pressure P
+    // Using Runge-Kutta 4th order numerical integration: dH/dp = 1 / (dp/dh)
+    function computeEquivalentDepth(targetP, q, glr, id) {
+      if (targetP <= 0) return 0;
+      let p = 0;
+      let h = 0;
+      const step = 20; // 20 psi intervals
+      while (p < targetP) {
+        const dp = Math.min(step, targetP - p);
+        const k1 = 1 / getGradient(p, q, glr, id);
+        const k2 = 1 / getGradient(p + 0.5 * dp, q, glr, id);
+        const k3 = 1 / getGradient(p + 0.5 * dp, q, glr, id);
+        const k4 = 1 / getGradient(p + dp, q, glr, id);
+        h += (dp / 6) * (k1 + 2 * k2 + 2 * k3 + k4);
+        p += dp;
+      }
+      return h;
+    }
+
+    // Inverse: Given equivalent depth H, find pressure P such that computeEquivalentDepth(P) = H
+    function solvePressureForH(targetH, q, glr, id) {
+      if (targetH <= 0) return 0;
+      let low = 0, high = 8000;
+      for (let iter = 0; iter < 45; iter++) {
+        const mid = (low + high) / 2;
+        const hMid = computeEquivalentDepth(mid, q, glr, id);
+        if (hMid < targetH) {
+          low = mid;
+        } else {
+          high = mid;
+        }
+      }
+      return (low + high) / 2;
+    }
+
+    // Solve for target missing variable
+    function calculate() {
+      const target = document.getElementById('targetVar').value;
+      const tubKey = document.getElementById('tubingSize').value;
+      const id = TUBING_IDS[tubKey] || 1.995;
+
+      let q = parseFloat(document.getElementById('rate').value) || 100;
+      let glr = parseFloat(document.getElementById('glr').value) || 100;
+      let depth = parseFloat(document.getElementById('depth').value) || 1000;
+      let pwh = parseFloat(document.getElementById('pwh').value) || 50;
+      let pwf = parseFloat(document.getElementById('pwf').value) || 500;
+
+      if (target === 'pwf') {
+        const h1 = computeEquivalentDepth(pwh, q, glr, id);
+        const h2 = h1 + depth;
+        pwf = solvePressureForH(h2, q, glr, id);
+        document.getElementById('pwf').value = Math.round(pwf);
+      } else if (target === 'pwh') {
+        const h2 = computeEquivalentDepth(pwf, q, glr, id);
+        const h1 = Math.max(0, h2 - depth);
+        pwh = solvePressureForH(h1, q, glr, id);
+        document.getElementById('pwh').value = Math.round(pwh);
+      } else if (target === 'depth') {
+        const h1 = computeEquivalentDepth(pwh, q, glr, id);
+        const h2 = computeEquivalentDepth(pwf, q, glr, id);
+        depth = Math.max(0, h2 - h1);
+        document.getElementById('depth').value = Math.round(depth);
+      } else if (target === 'glr') {
+        // Root finding for GLR matching target Pwf
+        let lowG = 50, highG = 5000;
+        for (let i = 0; i < 30; i++) {
+          const midG = (lowG + highG) / 2;
+          const h1 = computeEquivalentDepth(pwh, q, midG, id);
+          const pEst = solvePressureForH(h1 + depth, q, midG, id);
+          if (pEst > pwf) {
+            lowG = midG;
+          } else {
+            highG = midG;
+          }
+        }
+        glr = Math.round((lowG + highG) / 2);
+        document.getElementById('glr').value = glr;
+      } else if (target === 'rate') {
+        // Root finding for rate q matching target Pwf
+        let lowQ = 10, highQ = 5000;
+        for (let i = 0; i < 30; i++) {
+          const midQ = (lowQ + highQ) / 2;
+          const h1 = computeEquivalentDepth(pwh, midQ, glr, id);
+          const pEst = solvePressureForH(h1 + depth, midQ, glr, id);
+          if (pEst < pwf) {
+            lowQ = midQ;
+          } else {
+            highQ = midQ;
+          }
+        }
+        q = Math.round((lowQ + highQ) / 2);
+        document.getElementById('rate').value = q;
+      }
+
+      // Compute diagnostics
+      const h1 = computeEquivalentDepth(pwh, q, glr, id);
+      const h2 = h1 + depth;
+      const deltaP = pwf - pwh;
+      const avgGrad = depth > 0 ? (deltaP / depth) : 0;
+
+      document.getElementById('resDeltaP').innerText = `${deltaP.toFixed(1)} psi`;
+      document.getElementById('resAvgGrad').innerText = `${avgGrad.toFixed(4)} psi/ft`;
+      document.getElementById('resH1').innerText = `${Math.round(h1)} ft`;
+      document.getElementById('resH2').innerText = `${Math.round(h2)} ft`;
+
+      lastCalculatedData = { q, glr, depth, pwh, pwf, id, h1, h2, deltaP, avgGrad };
+      updateTableAndCanvas();
+    }
+
+    function handleTargetChange() {
+      const target = document.getElementById('targetVar').value;
+      const fields = ['pwf', 'pwh', 'depth', 'glr', 'rate'];
+      
+      fields.forEach(f => {
+        const input = document.getElementById(f);
+        const badge = document.getElementById(`badge-${f}`);
+        if (f === target) {
+          badge.classList.remove('hidden');
+          input.setAttribute('readonly', 'true');
+          input.classList.add('bg-amber-950/20', 'border-amber-500/40', 'text-amber-300');
+        } else {
+          badge.classList.add('hidden');
+          input.removeAttribute('readonly');
+          input.classList.remove('bg-amber-950/20', 'border-amber-500/40', 'text-amber-300');
+        }
+      });
+      calculate();
+    }
+
+    function applyPreset(type) {
+      if (type === 'bhp') {
+        document.getElementById('targetVar').value = 'pwf';
+        document.getElementById('tubingSize').value = '2.375';
+        document.getElementById('rate').value = '400';
+        document.getElementById('glr').value = '600';
+        document.getElementById('depth').value = '7000';
+        document.getElementById('pwh').value = '200';
+      } else if (type === 'thp') {
+        document.getElementById('targetVar').value = 'pwh';
+        document.getElementById('tubingSize').value = '2.875';
+        document.getElementById('rate').value = '800';
+        document.getElementById('glr').value = '450';
+        document.getElementById('depth').value = '6500';
+        document.getElementById('pwf').value = '1900';
+      } else if (type === 'glr') {
+        document.getElementById('targetVar').value = 'glr';
+        document.getElementById('tubingSize').value = '2.375';
+        document.getElementById('rate').value = '500';
+        document.getElementById('depth').value = '6000';
+        document.getElementById('pwh').value = '180';
+        document.getElementById('pwf').value = '1750';
+      } else if (type === 'depth') {
+        document.getElementById('targetVar').value = 'depth';
+        document.getElementById('tubingSize').value = '2.375';
+        document.getElementById('rate').value = '350';
+        document.getElementById('glr').value = '700';
+        document.getElementById('pwh').value = '150';
+        document.getElementById('pwf').value = '1850';
+      }
+      handleTargetChange();
+    }
+
+    function switchTab(tab) {
+      currentTab = tab;
+      const btnG = document.getElementById('btnTabGilbert');
+      const btnT = document.getElementById('btnTabTraverse');
+      if (tab === 'gilbert') {
+        btnG.className = "px-3 py-1.5 text-xs font-semibold rounded-lg bg-amber-500/20 text-amber-400 border border-amber-500/40 transition";
+        btnT.className = "px-3 py-1.5 text-xs font-semibold rounded-lg bg-slate-800 text-slate-400 hover:text-slate-200 border border-slate-700 transition";
+      } else {
+        btnT.className = "px-3 py-1.5 text-xs font-semibold rounded-lg bg-amber-500/20 text-amber-400 border border-amber-500/40 transition";
+        btnG.className = "px-3 py-1.5 text-xs font-semibold rounded-lg bg-slate-800 text-slate-400 hover:text-slate-200 border border-slate-700 transition";
+      }
+      drawCanvas();
+    }
+
+    // Update Depth Traverse Table
+    function updateTableAndCanvas() {
+      if (!lastCalculatedData) return;
+      const { q, glr, depth, pwh, pwf, id, h1 } = lastCalculatedData;
+
+      const tbody = document.getElementById('traverseBody');
+      tbody.innerHTML = '';
+      const numSteps = 10;
+      const dStep = depth / numSteps;
+
+      for (let i = 0; i <= numSteps; i++) {
+        const curD = i * dStep;
+        const curH = h1 + curD;
+        const curP = solvePressureForH(curH, q, glr, id);
+        const grad = getGradient(curP, q, glr, id);
+
+        const tr = document.createElement('tr');
+        tr.className = i % 2 === 0 ? 'bg-slate-900/50' : 'bg-slate-900/20';
+        tr.innerHTML = `
+          <td class="py-1.5 px-3 font-semibold text-slate-200">${Math.round(curD)}</td>
+          <td class="py-1.5 px-3 text-amber-400">${curP.toFixed(1)}</td>
+          <td class="py-1.5 px-3">${grad.toFixed(4)}</td>
+          <td class="py-1.5 px-3 text-slate-400">${Math.round(curH)}</td>
+        `;
+        tbody.appendChild(tr);
+      }
+
+      drawCanvas();
+    }
+
+    // High DPI Canvas Renderer
+    function drawCanvas() {
+      const canvas = document.getElementById('mainCanvas');
+      if (!canvas || !lastCalculatedData) return;
+      const ctx = canvas.getContext('2d');
+      const rect = canvas.getBoundingClientRect();
+      const dpr = window.devicePixelRatio || 1;
+      
+      canvas.width = rect.width * dpr;
+      canvas.height = rect.height * dpr;
+      ctx.scale(dpr, dpr);
+
+      const w = rect.width;
+      const h = rect.height;
+      const padding = { top: 40, right: 40, bottom: 50, left: 70 };
+      const plotW = w - padding.left - padding.right;
+      const plotH = h - padding.top - padding.bottom;
+
+      ctx.clearRect(0, 0, w, h);
+
+      if (currentTab === 'gilbert') {
+        drawGilbertSheet(ctx, padding, plotW, plotH, w, h);
+      } else {
+        drawTraversePlot(ctx, padding, plotW, plotH, w, h);
+      }
+    }
+
+    // Gilbert Sheet: H vs P (Inverted Depth Axis: H=0 at Top)
+    function drawGilbertSheet(ctx, pad, pw, ph, totalW, totalH) {
+      const { q, glr, depth, pwh, pwf, id, h1, h2 } = lastCalculatedData;
+      const maxP = Math.max(3500, Math.ceil(pwf / 500) * 500 + 500);
+      const maxH = Math.max(12000, Math.ceil(h2 / 1000) * 1000 + 2000);
+
+      const toX = p => pad.left + (p / maxP) * pw;
+      const toY = depthVal => pad.top + (depthVal / maxH) * ph; // H=0 at top
+
+      // Grid & Axes
+      ctx.strokeStyle = '#1e293b';
+      ctx.lineWidth = 1;
+
+      // P Grid (Vertical lines)
+      ctx.fillStyle = '#64748b';
+      ctx.font = '10px monospace';
+      ctx.textAlign = 'center';
+      for (let p = 0; p <= maxP; p += 500) {
+        const x = toX(p);
+        ctx.beginPath();
+        ctx.moveTo(x, pad.top);
+        ctx.lineTo(x, pad.top + ph);
+        ctx.stroke();
+        ctx.fillText(p, x, pad.top + ph + 16);
+      }
+
+      // H Grid (Horizontal lines, inverted)
+      ctx.textAlign = 'right';
+      for (let d = 0; d <= maxH; d += 2000) {
+        const y = toY(d);
+        ctx.beginPath();
+        ctx.moveTo(pad.left, y);
+        ctx.lineTo(pad.left + pw, y);
+        ctx.stroke();
+        ctx.fillText(d, pad.left - 10, y + 3);
+      }
+
+      // Reference GLR curves in background
+      REF_GLRS.forEach(refGlr => {
+        if (refGlr === glr) return;
+        ctx.beginPath();
+        ctx.strokeStyle = '#334155';
+        ctx.lineWidth = 1.2;
+        let started = false;
+        for (let p = 50; p <= maxP; p += 50) {
+          const eqH = computeEquivalentDepth(p, q, refGlr, id);
+          if (eqH > maxH) break;
+          const x = toX(p);
+          const y = toY(eqH);
+          if (!started) { ctx.moveTo(x, y); started = true; } else { ctx.lineTo(x, y); }
+        }
+        ctx.stroke();
+      });
+
+      // Active GLR Curve (Highlighted Cyan/Amber)
+      ctx.beginPath();
+      ctx.strokeStyle = '#f59e0b';
+      ctx.lineWidth = 3;
+      ctx.shadowColor = 'rgba(245, 158, 11, 0.4)';
+      ctx.shadowBlur = 8;
+      let activeStarted = false;
+      for (let p = 10; p <= maxP; p += 25) {
+        const eqH = computeEquivalentDepth(p, q, glr, id);
+        if (eqH > maxH) break;
+        const x = toX(p);
+        const y = toY(eqH);
+        if (!activeStarted) { ctx.moveTo(x, y); activeStarted = true; } else { ctx.lineTo(x, y); }
+      }
+      ctx.stroke();
+      ctx.shadowBlur = 0; // Reset shadow
+
+      // Point 1: Wellhead (Pwh, H1)
+      const x1 = toX(pwh);
+      const y1 = toY(h1);
+      // Point 2: Sandface (Pwf, H2)
+      const x2 = toX(pwf);
+      const y2 = toY(h2);
+
+      // Dashed projection lines
+      ctx.setLineDash([4, 4]);
+      ctx.strokeStyle = '#38bdf8';
+      ctx.lineWidth = 1.5;
+
+      // Point 1 projections
+      ctx.beginPath();
+      ctx.moveTo(x1, pad.top + ph);
+      ctx.lineTo(x1, y1);
+      ctx.lineTo(pad.left, y1);
+      ctx.stroke();
+
+      // Point 2 projections
+      ctx.beginPath();
+      ctx.moveTo(x2, pad.top + ph);
+      ctx.lineTo(x2, y2);
+      ctx.lineTo(pad.left, y2);
+      ctx.stroke();
+      ctx.setLineDash([]);
+
+      // Nodes
+      ctx.fillStyle = '#38bdf8';
+      ctx.beginPath();
+      ctx.arc(x1, y1, 5, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.beginPath();
+      ctx.arc(x2, y2, 5, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Dimension Bracket for Well Depth D (ΔH = H2 - H1)
+      const bracketX = pad.left + pw - 20;
+      ctx.strokeStyle = '#ec4899';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(bracketX - 6, y1);
+      ctx.lineTo(bracketX, y1);
+      ctx.lineTo(bracketX, y2);
+      ctx.lineTo(bracketX - 6, y2);
+      ctx.stroke();
+
+      ctx.fillStyle = '#f472b6';
+      ctx.font = 'bold 11px sans-serif';
+      ctx.textAlign = 'right';
+      ctx.fillText(`ΔH = D (${Math.round(depth)} ft)`, bracketX - 10, (y1 + y2) / 2);
+
+      // Labels
+      ctx.fillStyle = '#38bdf8';
+      ctx.font = '11px sans-serif';
+      ctx.textAlign = 'left';
+      ctx.fillText(`Pwh = ${Math.round(pwh)} psig (H₁ = ${Math.round(h1)} ft)`, x1 + 8, y1 - 8);
+      ctx.fillText(`Pwf = ${Math.round(pwf)} psig (H₂ = ${Math.round(h2)} ft)`, x2 + 8, y2 + 15);
+
+      // Axis Titles
+      ctx.fillStyle = '#94a3b8';
+      ctx.font = '11px sans-serif';
+      ctx.textAlign = 'center';
+      ctx.fillText('Pressure (psig)', pad.left + pw / 2, totalH - 12);
+      ctx.save();
+      ctx.translate(18, pad.top + ph / 2);
+      ctx.rotate(-Math.PI / 2);
+      ctx.fillText('Gilbert Equivalent Depth H (ft) [H=0 at Top]', 0, 0);
+      ctx.restore();
+    }
+
+    // Wellbore Traverse Plot: Actual Well Depth (0 to D) vs Pressure
+    function drawTraversePlot(ctx, pad, pw, ph, totalW, totalH) {
+      const { q, glr, depth, pwh, pwf, id, h1 } = lastCalculatedData;
+      const maxP = Math.max(3500, Math.ceil(pwf / 500) * 500 + 500);
+      const toX = p => pad.left + (p / maxP) * pw;
+      const toY = d => pad.top + (d / depth) * ph;
+
+      // Grid
+      ctx.strokeStyle = '#1e293b';
+      ctx.lineWidth = 1;
+      ctx.fillStyle = '#64748b';
+      ctx.font = '10px monospace';
+      ctx.textAlign = 'center';
+      for (let p = 0; p <= maxP; p += 500) {
+        const x = toX(p);
+        ctx.beginPath();
+        ctx.moveTo(x, pad.top);
+        ctx.lineTo(x, pad.top + ph);
+        ctx.stroke();
+        ctx.fillText(p, x, pad.top + ph + 16);
+      }
+
+      ctx.textAlign = 'right';
+      for (let d = 0; d <= depth; d += (depth / 5)) {
+        const y = toY(d);
+        ctx.beginPath();
+        ctx.moveTo(pad.left, y);
+        ctx.lineTo(pad.left + pw, y);
+        ctx.stroke();
+        ctx.fillText(Math.round(d), pad.left - 10, y + 3);
+      }
+
+      // Flowing Gradient Curve
+      ctx.beginPath();
+      ctx.strokeStyle = '#38bdf8';
+      ctx.lineWidth = 3;
+      const steps = 30;
+      for (let i = 0; i <= steps; i++) {
+        const curD = (i / steps) * depth;
+        const curP = solvePressureForH(h1 + curD, q, glr, id);
+        const x = toX(curP);
+        const y = toY(curD);
+        if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+      }
+      ctx.stroke();
+
+      // Static liquid gradient for reference (0.368 psi/ft)
+      ctx.beginPath();
+      ctx.strokeStyle = '#475569';
+      ctx.setLineDash([4, 4]);
+      ctx.moveTo(toX(pwh), toY(0));
+      ctx.lineTo(toX(pwh + depth * 0.368), toY(depth));
+      ctx.stroke();
+      ctx.setLineDash([]);
+
+      ctx.fillStyle = '#94a3b8';
+      ctx.font = '10px sans-serif';
+      ctx.fillText('Static Liquid Gradient (0.368 psi/ft)', toX(pwh + depth * 0.368) - 10, toY(depth) - 10);
+
+      // Surface & Bottom Points
+      ctx.fillStyle = '#f59e0b';
+      ctx.beginPath();
+      ctx.arc(toX(pwh), toY(0), 5, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.beginPath();
+      ctx.arc(toX(pwf), toY(depth), 5, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Axis Titles
+      ctx.fillStyle = '#94a3b8';
+      ctx.font = '11px sans-serif';
+      ctx.textAlign = 'center';
+      ctx.fillText('Flowing Wellbore Pressure (psig)', pad.left + pw / 2, totalH - 12);
+      ctx.save();
+      ctx.translate(18, pad.top + ph / 2);
+      ctx.rotate(-Math.PI / 2);
+      ctx.fillText('True Vertical Depth (ft)', 0, 0);
+      ctx.restore();
+    }
+
+    // CSV Export
+    function exportCSV() {
+      if (!lastCalculatedData) return;
+      const { q, glr, depth, pwh, pwf, id, h1 } = lastCalculatedData;
+      let csv = "Depth (ft),Pressure (psig),Local Gradient (psi/ft),Equivalent Depth H (ft)\n";
+      const numSteps = 20;
+      for (let i = 0; i <= numSteps; i++) {
+        const curD = (i / numSteps) * depth;
+        const curH = h1 + curD;
+        const curP = solvePressureForH(curH, q, glr, id);
+        const grad = getGradient(curP, q, glr, id);
+        csv += `${Math.round(curD)},${curP.toFixed(2)},${grad.toFixed(4)},${Math.round(curH)}\n`;
+      }
+      const blob = new Blob([csv], { type: 'text/csv' });
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.setAttribute('href', url);
+      a.setAttribute('download', `well_traverse_q${q}_glr${glr}.csv`);
+      a.click();
+    }
+
+    // Initialize
+    window.addEventListener('resize', drawCanvas);
+    window.addEventListener('DOMContentLoaded', () => {
+      handleTargetChange();
+    });
+  </script>
+</body>
+</html>
